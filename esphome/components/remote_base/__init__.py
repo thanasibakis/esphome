@@ -5,6 +5,7 @@ from typing import Any
 from esphome import automation
 import esphome.codegen as cg
 from esphome.components import binary_sensor
+from esphome.components.const import CONF_REPEAT_FRAMES
 from esphome.config_helpers import filter_source_files_from_defines
 import esphome.config_validation as cv
 from esphome.const import (
@@ -979,7 +980,7 @@ NEC_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_ADDRESS): cv.hex_uint16_t,
         cv.Required(CONF_COMMAND): cv.hex_uint16_t,
-        cv.Optional(CONF_COMMAND_REPEATS, default=1): cv.uint16_t,
+        cv.Optional(CONF_REPEAT_FRAMES, default=0): cv.uint16_t,
     }
 )
 
@@ -992,7 +993,7 @@ def nec_binary_sensor(var, config):
                 NECData,
                 ("address", config[CONF_ADDRESS]),
                 ("command", config[CONF_COMMAND]),
-                ("command_repeats", config[CONF_COMMAND_REPEATS]),
+                ("repeat_frames", config[CONF_REPEAT_FRAMES]),
             )
         )
     )
@@ -1014,8 +1015,8 @@ async def nec_action(var, config, args):
     cg.add(var.set_address(template_))
     template_ = await cg.templatable(config[CONF_COMMAND], args, cg.uint16)
     cg.add(var.set_command(template_))
-    template_ = await cg.templatable(config[CONF_COMMAND_REPEATS], args, cg.uint16)
-    cg.add(var.set_command_repeats(template_))
+    template_ = await cg.templatable(config[CONF_REPEAT_FRAMES], args, cg.uint16)
+    cg.add(var.set_repeat_frames(template_))
 
 
 # Pioneer

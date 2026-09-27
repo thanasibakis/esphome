@@ -15,7 +15,7 @@ static constexpr uint32_t BIT_REPEAT_LOW_US = 2250;
 void NECProtocol::encode(RemoteTransmitData *dst, const NECData &data) {
   ESP_LOGD(TAG, "Sending NEC: address=0x%04X, command=0x%04X", data.address, data.command);
 
-  dst->reserve(2 + 32 + 32 + 1 + (data.command_repeats - 1) * 4);
+  dst->reserve(2 + 32 + 32 + 1 + data.repeat_frames * 4);
   dst->set_carrier_frequency(38000);
 
   dst->item(HEADER_HIGH_US, HEADER_LOW_US);
@@ -38,19 +38,15 @@ void NECProtocol::encode(RemoteTransmitData *dst, const NECData &data) {
 
   dst->mark(BIT_HIGH_US);
 
-  // NOTE: I maintain the definition of command_repeats from before, which is the total number of frames to send.
-  // Therefore, command_repeats-1 is the number of repeat frames.
-  uint16_t num_repeat_frames = data.command_repeats - 1;
-
-  if (num_repeat_frames > 0) {
-    ESP_LOGD(TAG, "Sending NEC repeat frames (%d)", num_repeat_frames);
+  if (data.repeat_frames > 0) {
+    ESP_LOGD(TAG, "Sending NEC repeat frames (%d)", data.repeat_frames);
 
     // Begin the repeat frame sequence 40 ms after the command frame.
     // This will probably be a larger idle time than remote_receiver is configured for,
     // so don't expect it to be decoded together with the command frame later.
     dst->space(40000);
 
-    for (uint16_t repeats = 0; repeats < num_repeat_frames - 1; repeats++) {
+    for (uint16_t repeats = 0; repeats < data.repeat_frames - 1; repeats++) {
       dst->item(HEADER_HIGH_US, BIT_REPEAT_LOW_US);
       // Send repeat frames every 108 ms.
       dst->item(BIT_HIGH_US, 96000);
@@ -64,7 +60,7 @@ optional<NECData> NECProtocol::decode(RemoteReceiveData src) {
   NECData data{
       .address = 0,
       .command = 0,
-      .command_repeats = 1,
+      .repeat_frames = 0,
   };
 
   // Check if this is either a repeat frame or a command frame.
