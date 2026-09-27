@@ -8,6 +8,7 @@ struct NECData {
   uint16_t address;
   uint16_t command;
   uint16_t command_repeats;
+  uint16_t repeat_frames;
 
   bool operator==(const NECData &rhs) const { return address == rhs.address && command == rhs.command; }
 };
@@ -26,12 +27,14 @@ template<typename... Ts> class NECAction : public RemoteTransmitterActionBase<Ts
   TEMPLATABLE_VALUE(uint16_t, address)
   TEMPLATABLE_VALUE(uint16_t, command)
   TEMPLATABLE_VALUE(uint16_t, command_repeats)
+  TEMPLATABLE_VALUE(uint16_t, repeat_frames)
 
   void encode(RemoteTransmitData *dst, Ts... x) override {
     NECData data{};
     data.address = this->address_.value(x...);
     data.command = this->command_.value(x...);
     data.command_repeats = this->command_repeats_.value(x...);
+    data.repeat_frames = this->repeat_frames_.value(x...);
     NECProtocol().encode(dst, data);
   }
 };
