@@ -12,10 +12,9 @@ static constexpr uint32_t BIT_ONE_LOW_US = 1690;
 static constexpr uint32_t BIT_ZERO_LOW_US = 560;
 
 void NECProtocol::encode(RemoteTransmitData *dst, const NECData &data) {
-  ESP_LOGD(TAG, "Sending NEC: address=0x%04X, command=0x%04X command_repeats=%d", data.address, data.command,
-           data.command_repeats);
+  ESP_LOGD(TAG, "Sending NEC: address=0x%04X, command=0x%04X", data.address, data.command);
 
-  dst->reserve(2 + 32 + 32 * data.command_repeats + 2);
+  dst->reserve(2 + 32 + 32 + 1 + (data.command_repeats - 1) * 4);
   dst->set_carrier_frequency(38000);
 
   dst->item(HEADER_HIGH_US, HEADER_LOW_US);
@@ -28,17 +27,36 @@ void NECProtocol::encode(RemoteTransmitData *dst, const NECData &data) {
     }
   }
 
-  for (uint16_t repeats = 0; repeats < data.command_repeats; repeats++) {
-    for (uint16_t mask = 1; mask; mask <<= 1) {
-      if (data.command & mask) {
-        dst->item(BIT_HIGH_US, BIT_ONE_LOW_US);
-      } else {
-        dst->item(BIT_HIGH_US, BIT_ZERO_LOW_US);
-      }
+  for (uint16_t mask = 1; mask; mask <<= 1) {
+    if (data.command & mask) {
+      dst->item(BIT_HIGH_US, BIT_ONE_LOW_US);
+    } else {
+      dst->item(BIT_HIGH_US, BIT_ZERO_LOW_US);
     }
   }
 
   dst->mark(BIT_HIGH_US);
+
+  // NOTE: I maintain the definition of command_repeats from before, which is the total number of frames to send.
+  // Therefore, command_repeats-1 is the number of repeat frames.
+  uint16_t num_repeat_frames = data.command_repeats - 1;
+
+  if (num_repeat_frames > 0) {
+    ESP_LOGD(TAG, "Sending NEC repeat frames (%d)", num_repeat_frames);
+    // Begin the repeat frame sequence 40 ms after the command frame.
+    // This will probably be a larger idle time than remote_receiver is configured for,
+    // so don't expect it to be decoded together with the command frame later.
+    dst->space(40000);
+
+    for (uint16_t repeats = 0; repeats < num_repeat_frames - 1; repeats++) {
+      dst->item(HEADER_HIGH_US, 2250);
+      // Send repeat frames every 108 ms.
+      dst->item(BIT_HIGH_US, 96000);
+    }
+
+    dst->item(HEADER_HIGH_US, 2250);
+    dst->mark(BIT_HIGH_US);
+  }
 }
 optional<NECData> NECProtocol::decode(RemoteReceiveData src) {
   NECData data{
@@ -46,6 +64,13 @@ optional<NECData> NECProtocol::decode(RemoteReceiveData src) {
       .command = 0,
       .command_repeats = 1,
   };
+
+  // Repeat frames are padded with sufficient idle time that receivers will probably treat them as separate messages.
+  if (src.expect_item(HEADER_HIGH_US, 2250) && src.expect_mark(BIT_HIGH_US)) {
+    ESP_LOGI(TAG, "NEC repeat frame found. Deferring to raw output.");
+    return {};
+  }
+
   if (!src.expect_item(HEADER_HIGH_US, HEADER_LOW_US))
     return {};
 
@@ -69,32 +94,14 @@ optional<NECData> NECProtocol::decode(RemoteReceiveData src) {
     }
   }
 
-  while (src.peek_item(BIT_HIGH_US, BIT_ONE_LOW_US) || src.peek_item(BIT_HIGH_US, BIT_ZERO_LOW_US)) {
-    uint16_t command = 0;
-    for (uint16_t mask = 1; mask; mask <<= 1) {
-      if (src.expect_item(BIT_HIGH_US, BIT_ONE_LOW_US)) {
-        command |= mask;
-      } else if (src.expect_item(BIT_HIGH_US, BIT_ZERO_LOW_US)) {
-        command &= ~mask;
-      } else {
-        return {};
-      }
-    }
-
-    // Make sure the extra/repeated data matches original command
-    if (command != data.command) {
-      return {};
-    }
-
-    data.command_repeats += 1;
+  if (src.expect_mark(BIT_HIGH_US)) {
+    return data;
+  } else {
+    return {};
   }
-
-  src.expect_mark(BIT_HIGH_US);
-  return data;
 }
 void NECProtocol::dump(const NECData &data) {
-  ESP_LOGI(TAG, "Received NEC: address=0x%04X, command=0x%04X command_repeats=%d", data.address, data.command,
-           data.command_repeats);
+  ESP_LOGI(TAG, "Received NEC: address=0x%04X, command=0x%04X", data.address, data.command);
 }
 
 }  // namespace esphome::remote_base
