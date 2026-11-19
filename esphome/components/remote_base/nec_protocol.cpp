@@ -49,6 +49,14 @@ optional<NECData> NECProtocol::decode(RemoteReceiveData src) {
       .command = 0,
       .command_repeats = 1,
   };
+  // Check if this is either a repeat frame instead of a command frame.
+  // (Repeat frames arrive as separate captures, since receiver idle is far below the repeat gap)
+  if (src.expect_item(HEADER_HIGH_US, REPEAT_HEADER_LOW_US) && src.expect_mark(BIT_HIGH_US)) {
+    ESP_LOGI(TAG, "Received NEC repeat frame");
+    src.expect_space(REPEAT_GAP_US);
+    return {};
+  }
+
   if (!src.expect_item(HEADER_HIGH_US, HEADER_LOW_US))
     return {};
 
@@ -72,8 +80,9 @@ optional<NECData> NECProtocol::decode(RemoteReceiveData src) {
     }
   }
 
-  // Repeat frames arrive as separate captures (receiver idle is far below the repeat gap) and are not decoded
   src.expect_mark(BIT_HIGH_US);
+  uint32_t frame_us = HEADER_HIGH_US + HEADER_LOW_US + BIT_HIGH_US;
+  src.expect_space(REPEAT_PERIOD_US - frame_us);
   return data;
 }
 void NECProtocol::dump(const NECData &data) {
